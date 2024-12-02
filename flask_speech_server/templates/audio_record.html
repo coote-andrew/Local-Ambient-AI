@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Recorder</title>
+    <style>
+        #loading {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Audio Recorder</h1>
+    <button id="start">Start Recording</button>
+    <button id="stop" disabled>Stop Recording</button>
+
+    <p id="transcription"></p>
+    <p id="loading">Loading...</p>
+    <p id="recordingTimer">Recording Time: 0s</p>
+    <p id="processingTimer">Processing Time: 0s</p>
+
+    <label for="prompt">Custom Prompt:</label>
+    <textarea id="prompt" rows="4" cols="50">
+You are an AI assistant at an ophthalmology clinic in Australia. 
+You are given a transcription of a user's voice with a patient talking as well. 
+Your task is to provide a summarised account of the visit.
+    </textarea>
+
+    <label for="audioUpload">Upload Audio File:</label>
+    <input type="file" id="audioUpload" accept="audio/*">
+
+    <!-- Link to download the recorded audio -->
+    <a id="downloadLink" style="display: none;">Download Recorded Audio</a>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingTimerInterval;
+        let processingTimerInterval;
+        let recordingTime = 0;
+        let processingTime = 0;
+
+        function startRecordingTimer() {
+            recordingTime = 0;
+            document.getElementById('recordingTimer').textContent = `Recording Time: ${recordingTime}s`;
+            recordingTimerInterval = setInterval(() => {
+                recordingTime++;
+                document.getElementById('recordingTimer').textContent = `Recording Time: ${recordingTime}s`;
+            }, 1000);
+        }
+
+        function stopRecordingTimer() {
+            clearInterval(recordingTimerInterval);
+            document.getElementById('recordingTimer').textContent = `Recording Time: ${recordingTime}s`;
+        }
+
+        function startProcessingTimer() {
+            processingTime = 0;
+            document.getElementById('processingTimer').textContent = `Processing Time: ${processingTime}s`;
+            processingTimerInterval = setInterval(() => {
+                processingTime++;
+                document.getElementById('processingTimer').textContent = `Processing Time: ${processingTime}s`;
+            }, 1000);
+        }
+
+        function stopProcessingTimer() {
+            clearInterval(processingTimerInterval);
+            document.getElementById('processingTimer').textContent = `Processing Time: ${processingTime}s`;
+        }
+
+        document.getElementById('start').addEventListener('click', async () => {
+            try {
+                document.getElementById('audioUpload').disabled = true;
+                startRecordingTimer();
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+        
+                audioChunks = [];
+                mediaRecorder.start();
+        
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+        
+                document.getElementById('stop').disabled = false;
+                document.getElementById('start').disabled = true;
+            } catch (error) {
+                alert('Microphone access denied or unavailable. Please enable microphone permissions.');
+                console.error(error);
+            }
+        });
+        
+        document.getElementById('stop').addEventListener('click', async () => {
+            mediaRecorder.stop();
+            stopRecordingTimer();
+            document.getElementById('stop').disabled = true;
+            document.getElementById('start').disabled = false;
+            document.getElementById('audioUpload').disabled = false;
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                
+                // Create a download link for the recorded audio
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const downloadLink = document.getElementById('downloadLink');
+                downloadLink.href = audioUrl;
+                downloadLink.download = 'recorded_audio.wav';
+                downloadLink.style.display = 'block';
+                downloadLink.textContent = 'Download Recorded Audio';
+
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'audio.wav');
+                
+                const customPrompt = document.getElementById('prompt').value;
+                formData.append('prompt', customPrompt);
+
+                document.getElementById('transcription').textContent = '';
+                document.getElementById('loading').style.display = 'block';
+                startProcessingTimer();
+
+                try {
+                    const response = await fetch('/transcribe', {
+                        method: 'POST',
+                        body: formData,
+                    });
+        
+                    const result = await response.json();
+                    stopProcessingTimer();
+                    document.getElementById('loading').style.display = 'none';
+                    if (result.response) {
+                        document.getElementById('transcription').textContent = `Transcription: ${result.response}`;
+                    } else {
+                        document.getElementById('transcription').textContent = 'Error in transcription.';
+                    }
+                } catch (error) {
+                    stopProcessingTimer();
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('transcription').textContent = 'Failed to connect to the server.';
+                    console.error(error);
+                }
+            };
+        });
+
+        document.getElementById('audioUpload').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('audio', file);
+
+                const customPrompt = document.getElementById('prompt').value;
+                formData.append('prompt', customPrompt);
+
+                document.getElementById('transcription').textContent = '';
+                document.getElementById('loading').style.display = 'block';
+                startProcessingTimer();
+
+                try {
+                    const response = await fetch('/transcribe', {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    const result = await response.json();
+                    stopProcessingTimer();
+                    document.getElementById('loading').style.display = 'none';
+                    if (result.response) {
+                        document.getElementById('transcription').textContent = `Transcription: ${result.response}`;
+                    } else {
+                        document.getElementById('transcription').textContent = 'Error in transcription.';
+                    }
+                } catch (error) {
+                    stopProcessingTimer();
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('transcription').textContent = 'Failed to connect to the server.';
+                    console.error(error);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
