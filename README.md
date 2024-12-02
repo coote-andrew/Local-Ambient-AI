@@ -11,14 +11,14 @@ This has no password protection, so make sure it's maintained and used purely in
 
 ## Setup Instructions
 
-### 1. Clone the Repository
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/yourusername/audiotranscription.git
 cd audiotranscription
 ```
 
-### 2. Set Up a Virtual Environment
+## 2. Set Up a Virtual Environment
 
 Create and activate a virtual environment to manage dependencies.
 further details on venv [here](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)
@@ -37,7 +37,7 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 3. Install Dependencies
+## 3. Install Dependencies
 
 Use pip to install the required Python packages.
 
@@ -45,7 +45,7 @@ Use pip to install the required Python packages.
 pip install -r requirements.txt
 ```
 
-### 4. Configure Flask
+## 4. Configure Flask
 
 Set up Flask environment variables and run the application.
 
@@ -92,7 +92,7 @@ You will be prompted to enter details like:
 
 #### Ignore the browser’s security warning (self-signed certificates are not trusted by default).
 
-### 6. Download and Serve Ollama
+## 6. Download and Serve Ollama
 
 Ollama is used to serve the transcription model. Follow these steps to set it up:
 
@@ -122,7 +122,7 @@ ollama serve
 ollama serve
 ```
 
-### 7. VPN Setup (Optional)
+## 7. VPN Setup (Optional)
 
 If you need to access the server from a different network, you can use a VPN service like ZeroTier or Tailscale.
 
