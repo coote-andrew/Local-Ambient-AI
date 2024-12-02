@@ -103,9 +103,10 @@ Visit [Ollama's website](https://ollama.com) to download and install the softwar
 #### Serve the Model
 
 Start the Ollama server
-```Ollama run <MODEL>``` - I use Qwen2.5 in my code - which is 4.7GB model, and runs in about 20 seconds on a 2070 super GPU.
-then stop running the model using
-```/bye```
+```Ollama run <MODEL>``` 
+- I use qwen2.5 in my code - which is 4.7GB model, and runs in about 20 seconds on a 2070 super GPU.
+- You can specify a size model by adding colon and model size afterwards, eg ```qwen2.5:7b```
+then stop running the model using ```/bye```
 
 then
 ```
