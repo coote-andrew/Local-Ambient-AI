@@ -102,8 +102,16 @@ Visit [Ollama's website](https://ollama.com) to download and install the softwar
 
 #### Serve the Model
 
-Start the Ollama server and specify the port number.
-!!!Modify line 32 of app.py to your computer's ollama port number (likely 11434)
+Start the Ollama server
+```Ollama run <MODEL>``` - I use Qwen2.5 in my code - which is 4.7GB model, and runs in about 20 seconds on a 2070 super GPU.
+then stop running the model using
+```/bye```
+
+then
+```
+ollama serve
+```
+*!!!Modify line 32 of app.py to your computer's ollama port number (likely 11434)*
 
 ##### On Windows
 Modify your environmental variables set
@@ -112,15 +120,9 @@ Modify your environmental variables set
 skip this step if you don't want to customise your port
 [full guide here](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-configure-ollama-server)
 
-```
-ollama serve
-```
-
 ##### On macOS
 [guide to port changing here](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-configure-ollama-server)
-```
-ollama serve
-```
+
 
 ## 7. VPN Setup (Optional)
 
