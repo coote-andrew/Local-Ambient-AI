@@ -31,7 +31,7 @@ def transcribe():
         transcription = result["text"]
         prompt = custom_prompt + "\nHere is the transcription: " + transcription
         response = requests.post(
-            "http://localhost:11435/api/generate",  # Target local server
+            "http://localhost:11434/api/generate",  # Target local server
             json={
                 "model": "qwen2.5",
                 "prompt": prompt,
@@ -41,6 +41,7 @@ def transcribe():
 
         # Extract the "response" key from the JSON response
         if response.status_code == 200:
+            print(response.json())
             response_json = response.json()
             if "response" in response_json:
                 return jsonify({"response": response_json["response"]}), 200
