@@ -6,10 +6,8 @@ This has no password protection, so make sure it's maintained and used purely in
 ## Prerequisites
 
 - Python 3.x
-- pip (Python package manager)
 - Virtual environment support (venv)
 - Ollama (for serving the transcription model)
-- Git (for version control)
 
 ## Setup Instructions
 
@@ -23,6 +21,7 @@ cd audiotranscription
 ### 2. Set Up a Virtual Environment
 
 Create and activate a virtual environment to manage dependencies.
+further details on venv [here](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)
 
 #### On Windows
 
