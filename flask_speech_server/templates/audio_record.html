@@ -4,74 +4,446 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Audio Recorder</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        #loading {
-            display: none;
+        .recording { color: red; }
+        .hidden { display: none; }
+        .previous-recording {
+            border: 1px solid #dee2e6;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0.375rem;
+            background-color: white;
         }
-        #transcriptionContainer {
-            margin-top: 20px;
+        .prompt-container {
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 0.375rem;
+            margin: 1.5rem 0;
+            border: 1px solid #dee2e6;
+        }
+        .record-controls {
+            text-align: center;
+            margin: 2rem 0;
+        }
+        .record-btn {
+            padding: 1rem 2rem;
+            font-size: 1.25rem;
+            margin: 0 0.5rem;
+        }
+        #recordButton {
+            background-color: #198754;
+            color: white;
+        }
+        #stopButton {
+            background-color: #dc3545;
+            color: white;
+        }
+        .summary-section {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            border: 1px solid #dee2e6;
+        }
+        body {
+            background-color: #f8f9fa;
+            padding: 2rem 0;
+        }
+        .session-info {
+            background-color: #e9ecef;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin-bottom: 2rem;
+        }
+        .chunk-playback {
+            margin: 10px 0;
             padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
-        #copyButton {
-            margin-top: 10px;
-            display: none;
+        .chunk-playback audio {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .chunk-playback a {
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 0.9em;
+        }
+        .chunk-info {
+            margin-bottom: 10px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .chunk-hex {
+            font-size: 0.8em;
+            background-color: #fff;
+            padding: 5px;
+            margin: 5px 0;
+            border-radius: 3px;
+            max-height: 100px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .chunk-playback audio {
+            display: block;
+            margin: 10px 0;
+        }
+        .chunk-playback a {
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .analysis-section {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .analysis-section pre {
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
         }
     </style>
     <!-- Include marked.js for markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-    <h1>Audio Recorder</h1>
-    <button id="start">Start Recording</button>
-    <button id="stop" disabled>Stop Recording</button>
+    <div class="container">
+        <div class="session-info">
+            <h3>Session Info</h3>
+            <p class="mb-0"><strong>Doctor:</strong> {{ doctor }}  <strong>Hash:</strong> {{ hash_value }}</p>
+        </div>
 
-    <div id="transcriptionContainer">
-        <div id="transcription"></div>
-        <button id="copyButton">Copy Transcription</button>
+        <h1 class="text-center mb-4">Audio Recorder</h1>
+
+        <div class="prompt-container">
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="llmModel" class="form-label">Select LLM Model:</label>
+                    <select id="llmModel" class="form-select">
+                        {% for model, is_default in llm_models %}
+                            <option value="{{ model }}" {% if is_default %}selected{% endif %}>
+                                {{ model }}{% if is_default %} (Default){% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="promptSelect" class="form-label">Select Prompt:</label>
+                    <select id="promptSelect" class="form-select" onchange="updatePromptText()">
+                        <option value="custom">Custom Prompt</option>
+                        {% for prompt in prompts %}
+                            <option value="{{ prompt[0] }}">
+                                #{{ prompt[2] }} - {{ prompt[0][:100] }}...
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="prompt" class="form-label">Prompt Text:</label>
+                <textarea id="prompt" class="form-control" rows="4">{{ prompts[0][0] if prompts else 'Enter custom prompt here...' }}</textarea>
+                <div class="mt-2">
+                    <button onclick="savePrompt(true)" class="btn btn-outline-primary btn-sm">Save prompt as Default for me</button>
+                    <button onclick="savePrompt(false)" class="btn btn-outline-secondary btn-sm">Save as Additional Prompt</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="record-controls">
+            <button id="recordButton" class="btn record-btn">Start Recording</button>
+            <button id="stopButton" class="btn record-btn" disabled>Stop Recording</button>
+        </div>
+
+        <div class="mt-3">
+            <h4>Live Transcription:</h4>
+            <div id="liveTranscript" class="border p-3 mb-3" style="max-height: 200px; overflow-y: auto;">
+            </div>
+        </div>
+
+        <div id="audioOptions" class="text-center mt-2 hidden">
+            <div class="previous-recording">
+                <p><strong>Audio Options:</strong></p>
+                <div class="btn-group">
+                    <button onclick="downloadAudio()" class="btn btn-sm btn-outline-secondary">Download Audio</button>
+                    <button onclick="showSaveConfirm()" class="btn btn-sm btn-outline-primary">Save to Server</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-2">
+            <p id="recordingTimer" class="mb-1">Recording Time: 0s</p>
+            <p id="processingTimer" class="hidden mb-1">Processing Time: 0s</p>
+            <p id="loading" class="hidden">Loading...</p>
+        </div>
+
+        <div id="result" class="hidden">
+            <h3>Results:</h3>
+            <div id="transcriptionResult"></div>
+        </div>
+
+    <div id="previousRecordings">
+        <h3>Previous Recordings</h3>
+        {% for rec in previous_recordings %}
+        <div class="previous-recording">
+            <p><strong>Version:</strong> {{ rec[0] }}
+                <button onclick="copyTextFromElement(this.closest('.previous-recording').querySelector('.summary-section'))" class="btn btn-sm btn-outline-secondary">
+                    Copy Summary
+                </button>
+            </p>
+            <div class="summary-section">
+                {{ rec[3] | markdown | safe }}
+            </div>
+            <details>
+                <summary>Additional Information</summary>
+                <p><strong>Date:</strong> {{ rec[5] }}</p>
+                <p><strong>Model Used:</strong> {{ rec[4] }}</p>
+                <p><strong>Prompt Used:</strong> {{ rec[1] }}</p>
+                <details>
+                    <summary>Raw Transcript</summary>
+                    <p>{{ rec[2] }}</p>
+                </details>
+                <button 
+                    onclick="retryTranscript(`{{ rec[2] | replace('`', '\\`') | safe }}`)" 
+                    class="retry-btn btn btn-sm"
+                >
+                    Retry with current settings
+                </button>
+                {% if rec[6] %}
+                    <p><em>Audio file saved locally</em></p>
+                {% endif %}
+            </details>
+        </div>
+        {% endfor %}
     </div>
-    <p id="loading">Loading...</p>
-    <p id="recordingTimer">Recording Time: 0s</p>
-    <p id="processingTimer">Processing Time: 0s</p>
 
-    <label for="prompt">Custom Prompt:</label>
-    <textarea id="prompt" rows="4" cols="50">
-You are an AI assistant at an ophthalmology clinic in Australia. 
-You are given a transcription of a user's voice with a patient talking as well. 
-Your task is to provide a summarised account of the visit.
-    </textarea>
-
-    <label for="audioUpload">Upload Audio File:</label>
-    <input type="file" id="audioUpload" accept="audio/*, .m4a, .mp3, .wav">
-
-    <a id="downloadLink" style="display: none;">Download Recorded Audio</a>
+    </div>
 
     <script>
-        let mediaRecorder;
-        let audioChunks = [];
-        let recordingTimerInterval;
-        let processingTimerInterval;
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const hash = urlParams.get('hash');
+        const doctor = urlParams.get('doctor');
+
+        // Audio recording state
+        let mediaRecorder = null;
+        let recordingChunks = [];
+        let chunk_number = 0;
+        let recordingInterval = null;
+        const RECORDING_INTERVAL = 5000; // 5 seconds
         let recordingTime = 0;
-        let processingTime = 0;
+        let timerInterval = null;  // Add new variable to track timer interval specifically
+        let pendingRequests = new Set();
+        let version = {{ next_version_number }};
+        // Debug information
+        const DEBUG = true;
+
+        function debugLog(message, data = null) {
+            if (DEBUG) {
+                console.log(`[${new Date().toISOString()}] ${message}`);
+                if (data) console.log('Data:', data);
+            }
+        }
+
+        async function startRecording() {
+            try {
+                debugLog('Starting recording...');
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                let chunks = [];
+                
+                mediaRecorder = new MediaRecorder(stream);
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        chunks.push(event.data);
+                    }
+                };
+        
+                mediaRecorder.onstop = async () => {
+                    debugLog('Recording cycle stopped');
+                    if (chunks.length > 0) {
+                        const blob = new Blob(chunks, { type: 'audio/webm' });
+                        debugLog(`Sending recording, size: ${blob.size} bytes`);
+                        await sendChunkToServer(blob, Date.now());
+                        chunks = []; // Clear chunks after sending
+                    }
+                };
+
+                // Start the recording cycle
+                debugLog('Starting new recording cycle');
+                mediaRecorder.start();
+                
+                // Set up the interval for stopping and starting recordings
+                recordingInterval = setInterval(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                        mediaRecorder.start();
+                    }
+                }, RECORDING_INTERVAL);
+
+                // Update UI
+                updateRecordingUI(true);
+                startRecordingTimer();
+                
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                alert('Error starting recording: ' + error.message);
+            }
+        }
+
+        async function stopRecording() {
+            debugLog('Stopping recording...');
+            
+            // Clear recording interval first
+            if (recordingInterval) {
+                clearInterval(recordingInterval);
+                recordingInterval = null;
+            }
+            
+            // Stop the timer
+            stopRecordingTimer();
+            
+            // Stop current recording
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                mediaRecorder = null;
+            }
+            
+            debugLog('Recording stopped');
+            // Update UI
+            updateRecordingUI(false);
+            
+            // Wait for the final chunk to be processed
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            try {
+                debugLog('Fetching final transcription from server...');
+                const response = await fetch(`/get_transcription?hash=${encodeURIComponent(hash)}&doctor=${encodeURIComponent(doctor)}&version=${version}`);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                const fullTranscription = data.transcription;
+                
+                debugLog('Final transcription:', fullTranscription);
+                
+                // Generate final summary
+                if (fullTranscription) {
+                    debugLog('Generating final summary...');
+                    await generateFinalSummary(fullTranscription);
+                } else {
+                    debugLog('No transcription available for summary');
+                }
+            } catch (error) {
+                console.error('Error getting transcription:', error);
+                alert('Error processing transcription: ' + error.message);
+            }
+        }
+
+        async function sendChunkToServer(audioBlob, timestamp) {
+            const formData = new FormData();
+            formData.append('audio', audioBlob);
+            formData.append('chunk_number', chunk_number.toString());  // Use sequential number
+            formData.append('hash', hash);
+            formData.append('doctor', doctor);
+            formData.append('version', version);
+            
+            debugLog(`Sending chunk ${chunk_number} to server (size: ${audioBlob.size} bytes)`);
+            chunk_number++;  // Increment after using it
+            
+            try {
+                const requestPromise = fetch('/transcribe_chunk', {
+                    method: 'POST',
+                    body: formData
+                }).then(async response => {
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                    }
+                    const result = await response.json();
+                    debugLog(`Received transcription for chunk ${result.chunk_number}:`, result);
+                    
+                    // Update UI with transcription
+                    updateTranscriptionUI(result.transcription);
+                    
+                    // Remove from pending requests
+                    pendingRequests.delete(requestPromise);
+                }).catch(error => {
+                    debugLog(`Error processing chunk ${chunk_number}:`, error);
+                    pendingRequests.delete(requestPromise);
+                    throw error;
+                });
+                
+                // Add to pending requests
+                pendingRequests.add(requestPromise);
+                
+            } catch (error) {
+                debugLog(`Error sending chunk ${chunk_number}:`, error);
+            }
+        }
+
+        function updateTranscriptionUI(text) {
+            const transcriptElement = document.getElementById('liveTranscript');
+            if (transcriptElement) {
+                transcriptElement.textContent += ' ' + text;
+                transcriptElement.scrollTop = transcriptElement.scrollHeight;
+            }
+        }
+
+        function updateRecordingUI(isRecording) {
+            const startButton = document.getElementById('recordButton');
+            const stopButton = document.getElementById('stopButton');
+            if (startButton) startButton.disabled = isRecording;
+            if (stopButton) stopButton.disabled = !isRecording;
+        }
 
         function startRecordingTimer() {
-            recordingTime = 0;
-            document.getElementById('recordingTimer').textContent = `Recording Time: ${recordingTime}s`;
-            recordingTimerInterval = setInterval(() => {
+            recordingTime = 0;  // Reset the time when starting
+            const timerDisplay = document.getElementById('recordingTimer');
+            
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                console.log('[startRecordingTimer] Cleared existing timer interval');
+            }
+            
+            timerInterval = setInterval(() => {
                 recordingTime++;
-                document.getElementById('recordingTimer').textContent = `Recording Time: ${recordingTime}s`;
+                if (timerDisplay) {
+                    timerDisplay.textContent = `Recording: ${recordingTime}s`;
+                    console.log('[Timer Interval] Updated timer UI to:', recordingTime, 's');
+                }
             }, 1000);
+            console.log('[startRecordingTimer] Started new timer interval:', timerInterval);
         }
 
         function stopRecordingTimer() {
-            clearInterval(recordingTimerInterval);
-            document.getElementById('recordingTimer').textContent = `Recording Time: ${recordingTime}s`;
+            console.log('[stopRecordingTimer] Attempting to stop timer...');
+            console.log('[stopRecordingTimer] Current timer interval:', timerInterval);
+            
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                console.log('[stopRecordingTimer] Cleared and nulled timer interval');
+            }
+            
+            const timerDisplay = document.getElementById('recordingTimer');
+            if (timerDisplay) {
+                timerDisplay.textContent = `Recording Time: ${recordingTime}s`;
+                console.log('[stopRecordingTimer] Final timer UI update:', recordingTime, 's');
+            }
         }
 
         function startProcessingTimer() {
             processingTime = 0;
+            document.getElementById('processingTimer').classList.remove('hidden');
             document.getElementById('processingTimer').textContent = `Processing Time: ${processingTime}s`;
             processingTimerInterval = setInterval(() => {
                 processingTime++;
@@ -84,130 +456,408 @@ Your task is to provide a summarised account of the visit.
             document.getElementById('processingTimer').textContent = `Processing Time: ${processingTime}s`;
         }
 
-        document.getElementById('start').addEventListener('click', async () => {
+        function stopTimers() {
+            clearInterval(recordingInterval);
+            clearInterval(processingTimerInterval);
+        }
+
+        function updatePromptText() {
+            const select = document.getElementById('promptSelect');
+            const promptArea = document.getElementById('prompt');
+            if (select.value === 'custom') {
+                promptArea.value = '';
+                promptArea.removeAttribute('readonly');
+            } else {
+                promptArea.value = select.value;
+                promptArea.setAttribute('readonly', true);
+            }
+        }
+
+        async function extractWebMHeaders(blob) {
+            const arrayBuffer = await blob.arrayBuffer();
+            const dataView = new DataView(arrayBuffer);
+            
+            // Look for the first Cluster element (0x1F43B675)
+            let offset = 0;
+            while (offset < arrayBuffer.byteLength - 4) {
+                if (dataView.getUint32(offset) === 0x1f43b675) {
+                    // Found Cluster, everything before this is headers
+                    console.log('Found WebM headers, size:', offset);
+                    return arrayBuffer.slice(0, offset);
+                }
+                offset++;
+            }
+            console.log('No Cluster found in blob of size:', arrayBuffer.byteLength);
+            return null;
+        }
+
+        async function analyzeWebMChunk(chunk) {
+            console.log('[WebM Analysis] Starting chunk analysis');
+            
+            // Convert Blob to ArrayBuffer if needed
+            if (chunk instanceof Blob) {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const elements = parseEBMLElements(reader.result);
+                        logElements(elements);
+                        resolve();
+                    };
+                    reader.readAsArrayBuffer(chunk);
+                });
+            }
+
+            // If already ArrayBuffer
+            const elements = parseEBMLElements(chunk);
+            logElements(elements);
+        }
+
+        function logElements(elements) {
+            elements.forEach(el => {
+                console.log(`[WebM Element] ID: ${el.idHex}, Size: ${el.size}, Offset: ${el.offset}`);
+            });
+
+            // Specifically look for Cluster elements (ID: 1f 43 b6 75)
+            const clusters = elements.filter(el => 
+                el.idBytes && 
+                el.idBytes.length === 4 &&
+                el.idBytes[0] === 0x1F &&
+                el.idBytes[1] === 0x43 &&
+                el.idBytes[2] === 0xB6 &&
+                el.idBytes[3] === 0x75
+            );
+            
+            console.log(`[WebM Analysis] Found ${clusters.length} clusters`);
+
+            if (clusters.length === 0) {
+                console.warn('[WebM Analysis] No clusters found in chunk');
+            } else {
+                clusters.forEach(cluster => {
+                    console.log(`[WebM Cluster] Offset: ${cluster.offset}, Size: ${cluster.size}`);
+                });
+            }
+        }
+
+        // Helper function to parse EBML elements from a chunk
+        function parseEBMLElements(buffer) {
+            const elements = [];
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            // Known EBML IDs (in hex)
+            const CLUSTER_ID = [0x1F, 0x43, 0xB6, 0x75];
+            const SIMPLEBLOCK_ID = [0xA3];
+            const TIMECODE_ID = [0xE7];
+
+            while (offset < buffer.byteLength - 4) {
+                try {
+                    // Read first 4 bytes to check for Cluster
+                    const idBytes = new Uint8Array(buffer.slice(offset, offset + 4));
+                    
+                    // If we find what looks like random data, try scanning forward
+                    if (!isValidEBMLId(idBytes[0])) {
+                        offset++;
+                        continue;
+                    }
+
+                    let idLength = getVIntLength(idBytes[0]);
+                    if (idLength === 0 || offset + idLength >= buffer.byteLength) {
+                        offset++;
+                        continue;
+                    }
+
+                    // Read size bytes
+                    const sizeByte = view.getUint8(offset + idLength);
+                    let sizeLength = getVIntLength(sizeByte);
+                    if (sizeLength === 0 || offset + idLength + sizeLength >= buffer.byteLength) {
+                        offset++;
+                        continue;
+                    }
+
+                    let dataSize = readVInt(view, offset + idLength, sizeLength);
+                    if (dataSize < 0 || dataSize > buffer.byteLength) {
+                        offset++;
+                        continue;
+                    }
+
+                    const headerLength = idLength + sizeLength;
+                    const totalLength = headerLength + dataSize;
+
+                    // Check if this is a cluster
+                    if (idLength === 4 && 
+                        idBytes[0] === CLUSTER_ID[0] && 
+                        idBytes[1] === CLUSTER_ID[1] && 
+                        idBytes[2] === CLUSTER_ID[2] && 
+                        idBytes[3] === CLUSTER_ID[3]) {
+                        console.log('[WebM] Found Cluster:', {offset, size: dataSize});
+                    }
+
+                    elements.push({
+                        offset,
+                        idBytes: Array.from(idBytes.slice(0, idLength)),
+                        size: dataSize,
+                        headerLength,
+                        totalLength,
+                        idHex: Array.from(idBytes.slice(0, idLength))
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join(' ')
+                    });
+
+                    offset += totalLength;
+                } catch (e) {
+                    console.error('Error parsing EBML at offset', offset, e);
+                    offset++;
+                }
+            }
+            return elements;
+        }
+
+        // Helper functions
+        function isValidEBMLId(firstByte) {
+            // EBML IDs must start with a 1 bit
+            return (firstByte & 0x80) !== 0;
+        }
+
+        function getVIntLength(firstByte) {
+            for (let i = 0; i < 8; i++) {
+                if ((firstByte & (0x80 >> i)) !== 0) {
+                    return i + 1;
+                }
+            }
+            return 0;
+        }
+
+        function readVInt(view, offset, length) {
+            let value = view.getUint8(offset) & (0xFF >> length);
+            for (let i = 1; i < length; i++) {
+                if (offset + i >= view.byteLength) return -1;
+                value = (value << 8) | view.getUint8(offset + i);
+            }
+            return value;
+        }
+
+        function byteToHex(num) {
+            return num.toString(16).padStart(8, '0').match(/.{2}/g).join(' ');
+        }
+
+        async function generateFinalSummary(fullTranscription) {
+            debugLog('Starting generateFinalSummary with transcription:', fullTranscription);
+            
+            const formData = new FormData();
+            formData.append('hash', hash);
+            formData.append('doctor', doctor);
+            formData.append('prompt', document.getElementById('prompt').value);
+            formData.append('model', document.getElementById('llmModel').value);
+            formData.append('transcription', fullTranscription);
+            
             try {
-                document.getElementById('audioUpload').disabled = true;
-                startRecordingTimer();
-
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-        
-                audioChunks = [];
-                mediaRecorder.start();
-        
-                mediaRecorder.ondataavailable = event => {
-                    audioChunks.push(event.data);
-                };
-        
-                document.getElementById('stop').disabled = false;
-                document.getElementById('start').disabled = true;
+                debugLog('Sending request to /generate_summary');
+                const response = await fetch('/generate_summary', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+                
+                debugLog('Received response from /generate_summary');
+                const result = await response.json();
+                debugLog('Parsed response:', result);
+                
+                document.getElementById('transcriptionResult').innerHTML = `
+                    <h4>Version ${result.version}</h4>
+                    <details>
+                        <summary>Raw Transcript</summary>
+                        <p>${result.raw_transcript}</p>
+                    </details>
+                    <details>
+                        <summary>Summary</summary>
+                        <p>${result.summary}</p>
+                    </details>
+                `;
+                document.getElementById('result').classList.remove('hidden');
+                debugLog('Summary UI updated successfully');
+                
             } catch (error) {
-                alert('Microphone access denied or unavailable. Please enable microphone permissions.');
-                console.error(error);
+                console.error('Error in generateFinalSummary:', error);
+                alert('Error generating final summary: ' + error.message);
             }
-        });
-        
-        document.getElementById('stop').addEventListener('click', async () => {
-            mediaRecorder.stop();
-            stopRecordingTimer();
-            document.getElementById('stop').disabled = true;
-            document.getElementById('start').disabled = false;
-            document.getElementById('audioUpload').disabled = false;
+        }
 
-            mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const downloadLink = document.getElementById('downloadLink');
-                downloadLink.href = audioUrl;
-                downloadLink.download = 'recorded_audio.wav';
-                downloadLink.style.display = 'block';
-                downloadLink.textContent = 'Download Recorded Audio';
-
-                const formData = new FormData();
-                formData.append('audio', audioBlob, 'audio.wav');
-                
-                const customPrompt = document.getElementById('prompt').value;
-                formData.append('prompt', customPrompt);
-
-                document.getElementById('transcription').textContent = '';
-                document.getElementById('loading').style.display = 'block';
-                startProcessingTimer();
-
-                try {
-                    const response = await fetch('/transcribe', {
-                        method: 'POST',
-                        body: formData,
-                    });
-        
-                    const result = await response.json();
-                    stopProcessingTimer();
-                    document.getElementById('loading').style.display = 'none';
-                    if (result.response) {
-                        // Render markdown and display the transcription
-                        document.getElementById('transcription').innerHTML = result.response;
-                        document.getElementById('copyButton').style.display = 'block';
-                    } else {
-                        document.getElementById('transcription').textContent = 'Error in transcription.';
-                        document.getElementById('copyButton').style.display = 'none';
-                    }
-                } catch (error) {
-                    stopProcessingTimer();
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('transcription').textContent = 'Failed to connect to the server.';
-                    document.getElementById('copyButton').style.display = 'none';
-                    console.error(error);
-                }
-            };
-        });
-
-        document.getElementById('audioUpload').addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                const formData = new FormData();
-                formData.append('audio', file);
-
-                const customPrompt = document.getElementById('prompt').value;
-                formData.append('prompt', customPrompt);
-
-                document.getElementById('transcription').textContent = '';
-                document.getElementById('loading').style.display = 'block';
-                startProcessingTimer();
-
-                try {
-                    const response = await fetch('/transcribe', {
-                        method: 'POST',
-                        body: formData,
-                    });
-
-                    const result = await response.json();
-                    stopProcessingTimer();
-                    document.getElementById('loading').style.display = 'none';
-                    if (result.response) {
-                        // Render markdown and display the transcription
-                        document.getElementById('transcription').innerHTML = marked(result.response);
-                        document.getElementById('copyButton').style.display = 'block';
-                    } else {
-                        document.getElementById('transcription').textContent = 'Error in transcription.';
-                        document.getElementById('copyButton').style.display = 'none';
-                    }
-                } catch (error) {
-                    stopProcessingTimer();
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('transcription').textContent = 'Failed to connect to the server.';
-                    document.getElementById('copyButton').style.display = 'none';
-                    console.error(error);
-                }
-            }
-        });
-
-        document.getElementById('copyButton').addEventListener('click', () => {
-            const transcriptionText = document.getElementById('transcription').innerText;
-            navigator.clipboard.writeText(transcriptionText).then(() => {
-                alert('Transcription copied to clipboard!');
+        function copyTextFromElement(element) {
+            const text = element.innerText || element.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Summary copied to clipboard!');
             }).catch(err => {
                 console.error('Failed to copy text: ', err);
             });
+        }
+
+        async function retryTranscript(transcription) {
+            startProcessingTimer();
+            
+            const formData = new FormData();
+            formData.append('prompt', document.getElementById('prompt').value);
+            formData.append('model', document.getElementById('llmModel').value);
+            formData.append('hash', hash);
+            formData.append('doctor', doctor);
+            formData.append('raw_transcript', transcription);
+        
+            try {
+                const response = await fetch('/retry_summary', {
+                    method: 'POST',
+                    body: formData
+                });
+        
+                const result = await response.json();
+                stopProcessingTimer();
+        
+                document.getElementById('transcriptionResult').innerHTML = `
+                    <h4>Version ${result.version}</h4>
+                    <details>
+                        <summary>Raw Transcript</summary>
+                        <p>${result.raw_transcript}</p>
+                    </details>
+                    <details>
+                        <summary>Summary</summary>
+                        <p>${result.response}</p>
+                    </details>
+                `;
+                document.getElementById('result').classList.remove('hidden');
+                
+                // Reload page to show updated previous recordings
+                location.reload();
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error processing transcript');
+                stopProcessingTimer();
+            }
+        }
+
+        async function savePrompt(isDefault) {
+            const formData = new FormData();
+            formData.append('doctor', doctor);
+            formData.append('prompt_text', document.getElementById('prompt').value);
+            formData.append('is_default', isDefault);
+
+            try {
+                const response = await fetch('/save_prompt', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    alert('Prompt saved successfully');
+                    location.reload();
+                } else {
+                    alert('Error saving prompt');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error saving prompt');
+            }
+        }
+
+        function downloadAudio() {
+            if (window.lastRecordedAudio) {
+                const url = URL.createObjectURL(window.lastRecordedAudio);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `recording_${new Date().toISOString()}.wav`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        }
+
+        function showSaveConfirm() {
+            if (confirm('Saving the audio file to the server requires additional patient consent. Have you obtained this consent?')) {
+                const formData = new FormData();
+                formData.append('audio', window.lastRecordedAudio);
+                formData.append('prompt', document.getElementById('prompt').value);
+                formData.append('model', document.getElementById('llmModel').value);
+                formData.append('hash', hash);
+                formData.append('doctor', doctor);
+                formData.append('save_audio', true);
+
+                fetch('/transcribe', {
+                    method: 'POST',
+                    body: formData
+                }).then(() => {
+                    location.reload();
+                }).catch(error => {
+                    console.error('Error:', error);
+                    alert('Error saving audio');
+                });
+            }
+        }
+
+        function createDebugDiv() {
+            const div = document.createElement('div');
+            div.id = 'debugInfo';
+            div.style.marginTop = '20px';
+            div.style.padding = '10px';
+            div.style.border = '1px solid #ccc';
+            div.innerHTML = '<h4>Debug Information</h4>';
+            document.body.appendChild(div);
+            return div;
+        }
+
+        // Add these utility functions
+        function hexDump(buffer, offset = 0, length = 32) {
+            const view = new Uint8Array(buffer);
+            const hex = Array.from(view.slice(offset, offset + length))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join(' ');
+            const ascii = Array.from(view.slice(offset, offset + length))
+                .map(b => b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')
+                .join('');
+            return `${hex}\n${ascii}`;
+        }
+
+        function analyzeWebMElement(dataView, offset) {
+            const id = dataView.getUint32(offset);
+            let size = 0;
+            let sizeLength = 0;
+            
+            // Determine size length from first byte
+            const firstByte = dataView.getUint8(offset + 4);
+            if (firstByte & 0x80) sizeLength = 1;
+            else if (firstByte & 0x40) sizeLength = 2;
+            else if (firstByte & 0x20) sizeLength = 3;
+            else if (firstByte & 0x10) sizeLength = 4;
+            
+            // Read size
+            for (let i = 0; i < sizeLength; i++) {
+                size = (size << 8) | dataView.getUint8(offset + 4 + i);
+            }
+            
+            return {
+                id,
+                size,
+                headerLength: 4 + sizeLength,
+                totalLength: 4 + sizeLength + size
+            };
+        }
+
+        // Add event listeners when the document loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Connect record button
+            const recordButton = document.getElementById('recordButton');
+            const stopButton = document.getElementById('stopButton');
+            
+            if (recordButton) {
+                recordButton.addEventListener('click', startRecording);
+                debugLog('Record button listener added');
+            }
+            
+            if (stopButton) {
+                stopButton.addEventListener('click', stopRecording);
+                debugLog('Stop button listener added');
+            }
         });
     </script>
 </body>
