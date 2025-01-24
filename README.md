@@ -3,6 +3,9 @@
 This project is a web application for recording and uploading audio files, which are then transcribed using a server-side model. The application is built using Flask for the backend and HTML/JavaScript for the frontend.
 This has no password protection, so make sure it's maintained and used purely in a trusted network
 
+![image](https://github.com/user-attachments/assets/4da1ab69-3303-4f52-872f-3833bbf7422e)
+
+
 ## Prerequisites
 
 - Python 3.x
