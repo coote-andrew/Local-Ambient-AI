@@ -62,7 +62,7 @@ def init_db():
         # Insert default LLM if not exists
         cursor.execute('''
             INSERT OR IGNORE INTO llm_models (name, is_active, is_default)
-            VALUES ('qwen2.5', 1, 1)
+            VALUES ('qwen2.5:7b', 1, 1)
         ''')
 
         # Insert global default prompt if no default exists for ~All

@@ -21,6 +21,8 @@ import threading
 import concurrent.futures
 from datetime import datetime, timedelta
 import shutil
+import sys
+import json
 
 
 
@@ -585,64 +587,108 @@ def process_transcription(audio_path, wav_path, chunk_number, hash_value, doctor
         # Check if original audio file exists and has content
         if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
             logging.debug(f"Empty audio file for chunk {chunk_number}")
-            print(f"Empty audio file for chunk {chunk_number}")
             return {"status": "success", "transcription": "", "error": "Empty chunk"}
 
-        # Check audio levels using ffmpeg
-        silence_check_cmd = [
-            'ffmpeg',
-            '-y',  # Overwrite output files
-            '-f', 'webm',  # Force input format
-            '-i', audio_path,
-            '-af', 'volumedetect',
-            '-f', 'null',
-            '-'
+        # First, probe the input file to verify format
+        probe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'a:0',
+            '-show_entries', 'stream=codec_name,channels,sample_rate',
+            '-of', 'json',
+            audio_path
         ]
         
-        silence_process = subprocess.run(
-            silence_check_cmd,
-            capture_output=True,
-            text=True
-        )
+        try:
+            probe_result = subprocess.run(
+                probe_cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            probe_data = json.loads(probe_result.stdout)
+            logging.debug(f"FFprobe output: {probe_data}")
+            
+            # Extract codec information
+            if probe_data.get('streams') and len(probe_data['streams']) > 0:
+                codec_name = probe_data['streams'][0].get('codec_name', '')
+                logging.debug(f"Detected codec: {codec_name}")
+            else:
+                codec_name = ''
+                
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+            logging.error(f"FFprobe error: {str(e)}")
+            codec_name = ''
+
+        # Build FFmpeg command based on detected codec
+        ffmpeg_cmd = ['ffmpeg', '-y']
         
-        # Parse the mean volume from ffmpeg output
-        mean_volume = None
-        for line in silence_process.stderr.split('\n'):
-            if 'mean_volume' in line:
+        # Add input codec specification if detected
+        if codec_name:
+            ffmpeg_cmd.extend(['-acodec', codec_name])
+        
+        # Complete the FFmpeg command with input and output parameters
+        ffmpeg_cmd.extend([
+            '-i', audio_path,
+            '-vn',  # No video
+            '-acodec', 'pcm_s16le',
+            '-ar', '16000',
+            '-ac', '1',
+            '-af', 'aresample=async=1000:first_pts=0',  # Handle async audio and force starting timestamp
+            '-f', 'wav'
+        ])
+
+        # Add platform-specific options
+        if sys.platform == 'darwin':  # macOS
+            ffmpeg_cmd.extend(['-thread_queue_size', '4096'])
+        elif sys.platform == 'win32':  # Windows
+            ffmpeg_cmd.extend(['-strict', 'unofficial'])
+
+        # Add output path
+        ffmpeg_cmd.append(wav_path)
+
+        logging.debug(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
+
+        try:
+            process = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            logging.debug(f"FFmpeg conversion output: {process.stderr}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"FFmpeg conversion error: {e.stderr}")
+            # If first attempt fails, try without codec specification
+            if codec_name:
+                logging.debug("Retrying without codec specification")
+                ffmpeg_cmd = ['ffmpeg', '-y', '-i', audio_path, '-vn', 
+                            '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                            '-af', 'aresample=async=1000:first_pts=0', '-f', 'wav']
+                
+                if sys.platform == 'darwin':
+                    ffmpeg_cmd.extend(['-thread_queue_size', '4096'])
+                elif sys.platform == 'win32':
+                    ffmpeg_cmd.extend(['-strict', 'unofficial'])
+                
+                ffmpeg_cmd.append(wav_path)
+                
                 try:
-                    mean_volume = float(line.split(':')[1].strip().replace(' dB', ''))
-                except (ValueError, IndexError):
-                    pass
-        
-        # If mean volume is very low or couldn't be detected, return empty transcription
-        if mean_volume is None or mean_volume < -60:
-            logging.debug(f"Silent chunk {chunk_number} detected (mean volume: {mean_volume}dB)")
-            print(f"Silent chunk {chunk_number} detected (mean volume: {mean_volume}dB)")
-            return {"status": "success", "transcription": "", "error": "Silent chunk"}
+                    process = subprocess.run(
+                        ffmpeg_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    logging.debug(f"Second attempt FFmpeg output: {process.stderr}")
+                except subprocess.CalledProcessError as e:
+                    logging.error(f"Second attempt FFmpeg error: {e.stderr}")
+                    return {"status": "success", "transcription": "", "error": f"Conversion error: {e.stderr}"}
 
-        # Convert to WAV using ffmpeg with all standard parameters
-        ffmpeg_cmd = [
-            'ffmpeg',
-            '-y',  # Overwrite output files
-            '-f', 'webm',  # Force input format
-            '-i', audio_path,
-            '-acodec', 'pcm_s16le',  # Output codec
-            '-ar', '16000',  # Sample rate
-            '-ac', '1',  # Mono audio
-            wav_path
-        ]
-
-        process = subprocess.run(
-            ffmpeg_cmd,
-            capture_output=True,
-            text=True
-        )
-        
-        if process.returncode != 0:
-            logging.error(f"FFmpeg error output for chunk {chunk_number}:")
-            logging.error(f"Command: {' '.join(ffmpeg_cmd)}")
-            logging.error(f"stderr: {process.stderr}")
-            return {"status": "success", "transcription": "", "error": ""}
+        # Verify the converted WAV file
+        if not os.path.exists(wav_path) or os.path.getsize(wav_path) == 0:
+            logging.error(f"WAV conversion failed for chunk {chunk_number}")
+            return {"status": "success", "transcription": "", "error": "WAV conversion failed"}
 
         try:
             # Process audio with Whisper
@@ -651,27 +697,24 @@ def process_transcription(audio_path, wav_path, chunk_number, hash_value, doctor
             return {"status": "success", "transcription": transcription, "error": ""}
         except RuntimeError as e:
             if "cannot reshape tensor of 0 elements" in str(e):
-                # This is likely a silent or no-speech chunk
+                logging.debug(f"Silent chunk detected by Whisper: {chunk_number}")
                 return {"status": "success", "transcription": "", "error": ""}
             else:
-                # This is an unexpected error, log it
+                logging.error(f"Whisper error: {str(e)}")
                 raise e
 
     except Exception as e:
         logging.error(f"Error processing chunk {chunk_number}: {str(e)}")
         logging.error(traceback.format_exc())
-        print(f"Error processing chunk {chunk_number}: {str(e)}")
-        print(traceback.format_exc())
-
         return {"status": "success", "transcription": "", "error": str(e)}
     
     finally:
         # Cleanup temporary files
-        if 'wav_path' in locals():
+        if 'wav_path' in locals() and os.path.exists(wav_path):
             try:
                 os.unlink(wav_path)
-            except:
-                pass
+            except Exception as e:
+                logging.error(f"Error cleaning up WAV file: {e}")
 
 
 def clean_transcription(text):
