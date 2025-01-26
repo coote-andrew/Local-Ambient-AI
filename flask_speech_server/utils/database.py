@@ -59,17 +59,6 @@ def init_db():
             )
         ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS audio_chunks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                hash TEXT NOT NULL,
-                doctor TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                chunk_time INTEGER NOT NULL,
-                chunk_data BLOB NOT NULL
-            )
-        ''')
-
         # Insert default LLM if not exists
         cursor.execute('''
             INSERT OR IGNORE INTO llm_models (name, is_active, is_default)
@@ -92,6 +81,102 @@ def init_db():
                 SELECT 1 FROM prompts 
                 WHERE doctor_id = '~All'
             )
+        ''')
+
+            # Add processing_times table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS processing_times
+            (hash TEXT, 
+            doctor TEXT, 
+            version INTEGER, 
+            processing_time REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (hash, doctor, version) REFERENCES transcriptions(hash, doctor, version))
+        ''')
+
+        # Create index for faster average calculations
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_processing_times_timestamp 
+            ON processing_times(timestamp DESC)
+        ''')
+        # Create funny_quotes table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS funny_quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                quote TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Insert default funny quotes if table is empty
+        cursor.execute('SELECT COUNT(*) FROM funny_quotes')
+        if cursor.fetchone()[0] == 0:
+            quotes = [
+                "Teaching AI to understand doctor handwriting...",
+                "Consulting with virtual medical board...",
+                "Debugging the human condition...",
+                "Optimizing healthcare one recording at a time...",
+                "Translating medical jargon to English...",
+                "Calculating the meaning of life (and medicine)...",
+                "Performing digital surgery on your audio...",
+                "Consulting with Dr. ChatGPT...",
+                "Applying machine learning bandages...",
+                "Prescribing ones and zeros..."
+            ]
+            cursor.executemany('INSERT INTO funny_quotes (quote) VALUES (?)', 
+                            [(quote,) for quote in quotes])
+
+        # Add transcription_tips table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS transcription_tips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                error TEXT,
+                fix TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Insert default transcription tips if table is empty
+        cursor.execute('SELECT COUNT(*) FROM transcription_tips')
+        if cursor.fetchone()[0] == 0:
+            tips = [
+                (None, "Include any follow-up appointments or recommendations"),
+                (None, "List all medications discussed during the consultation"),
+                (None, "List all medical conditions discussed during the consultation, remember - these are likely to be ophthalmology related"),
+                (None, "Do not provide tips if the transcription is faulty, just provide a summary of the consultation"),
+                (None, "You do not need to provide date, patient name, or doctor name in the summary - this information will be pasted into a note section by the doctor. The other information is already available.")
+            ]
+            cursor.executemany('INSERT INTO transcription_tips (error, fix) VALUES (?, ?)', tips)
+            conn.commit()
+
+        # Create data_generations table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS data_generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt TEXT NOT NULL,
+                patient_data TEXT NOT NULL,
+                model_used TEXT NOT NULL,
+                generated_text TEXT NOT NULL,
+                processing_time REAL,
+                error TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Create data_generation_tips table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS data_generation_tips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tip TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Create index for faster querying
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_data_generations_created_at 
+            ON data_generations(created_at DESC)
         ''')
 
         conn.commit()

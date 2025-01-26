@@ -6,30 +6,31 @@
     <title>Audio Recorder</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         .recording { color: red; }
         .hidden { display: none; }
         .previous-recording {
             border: 1px solid #dee2e6;
-            padding: 1rem;
-            margin: 1rem 0;
+            padding: 0.75rem;
+            margin: 0.75rem 0;
             border-radius: 0.375rem;
             background-color: white;
         }
         .prompt-container {
             background-color: #f8f9fa;
-            padding: 1.5rem;
+            padding: 1rem;
             border-radius: 0.375rem;
-            margin: 1.5rem 0;
+            margin: 1rem 0;
             border: 1px solid #dee2e6;
         }
         .record-controls {
             text-align: center;
-            margin: 2rem 0;
+            margin: 1.5rem 0;
         }
         .record-btn {
-            padding: 1rem 2rem;
-            font-size: 1.25rem;
+            padding: 0.75rem 1.5rem;
+            font-size: 1.1rem;
             margin: 0 0.5rem;
         }
         #recordButton {
@@ -42,19 +43,33 @@
         }
         .summary-section {
             background-color: white;
-            padding: 1rem;
+            padding: 0.75rem;
             border-radius: 0.375rem;
             border: 1px solid #dee2e6;
+            margin-top: 1rem;
         }
         body {
             background-color: #f8f9fa;
-            padding: 2rem 0;
+            padding: 1rem 0;
+            font-size: 0.9rem;
         }
         .session-info {
             background-color: #e9ecef;
-            padding: 1rem;
+            padding: 0.75rem;
             border-radius: 0.375rem;
-            margin-bottom: 2rem;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        h1 { font-size: 1.75rem; }
+        h3 { font-size: 1.25rem; }
+        h4 { font-size: 1.1rem; }
+        .form-control, .form-select {
+            padding: 0.375rem 0.5rem;
+            font-size: 0.9rem;
+        }
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
         }
         .chunk-playback {
             margin: 10px 0;
@@ -118,7 +133,7 @@
             <p class="mb-0"><strong>Doctor:</strong> {{ doctor }}  <strong>Hash:</strong> {{ hash_value }}</p>
         </div>
 
-        <h1 class="text-center mb-4">Audio Recorder</h1>
+        <h1 class="text-center mb-3">Audio Recorder</h1>
 
         <div class="prompt-container">
             <div class="row mb-3">
@@ -159,11 +174,26 @@
             <button id="stopButton" class="btn record-btn" disabled>Stop Recording</button>
         </div>
 
-        <div class="mt-3">
-            <h4>Live Transcription:</h4>
-            <div id="liveTranscript" class="border p-3 mb-3" style="max-height: 200px; overflow-y: auto;">
+        <div id="result">
+            <div class="summary-section">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h4 class="mb-0">Summary</h4>
+                    <div>
+                        <button onclick="copySummary()" class="btn btn-sm btn-outline-secondary me-2">Copy Summary</button>
+                        <button onclick="retryTranscript(document.querySelector('#result details p').textContent)" class="btn btn-sm btn-outline-secondary">
+                            Retry with different settings
+                        </button>
+                    </div>
+                </div>
+                <div id="transcriptionResult"></div>
             </div>
         </div>
+
+        <details class="mt-3">
+            <summary>Live Transcription</summary>
+            <div id="liveTranscript" class="border p-2 mb-3" style="max-height: 150px; overflow-y: auto; font-size: 0.85rem;">
+            </div>
+        </details>
 
         <div id="audioOptions" class="text-center mt-2 hidden">
             <div class="previous-recording">
@@ -181,19 +211,42 @@
             <p id="loading" class="hidden">Loading...</p>
         </div>
 
-        <div id="result" class="hidden">
-            <h3>Results:</h3>
-            <div id="transcriptionResult"></div>
-        </div>
-
     <div id="previousRecordings">
         <h3>Previous Recordings</h3>
         {% for rec in previous_recordings %}
         <div class="previous-recording">
             <p><strong>Version:</strong> {{ rec[0] }}
-                <button onclick="copyTextFromElement(this.closest('.previous-recording').querySelector('.summary-section'))" class="btn btn-sm btn-outline-secondary">
+                <button onclick="copyTextFromElement(this.closest('.previous-recording').querySelector('.summary-section'))" class="btn btn-sm btn-outline-secondary me-2">
                     Copy Summary
                 </button>
+                <button 
+                    onclick="retryTranscript(`{{ rec[2] | safe | replace('`', '\\`') | replace('\n', '\\n') }}`)"
+                    class="retry-btn btn btn-sm btn-outline-secondary"
+                >
+                    Retry with different settings
+                </button>
+                <!-- Add audio controls -->
+                <div class="audio-controls mt-2">
+                    {% if rec[6] %}
+                        <!-- Audio is permanently saved -->
+                        <button onclick="downloadAudioVersion('{{ hash_value }}', '{{ doctor }}', {{ rec[0] }})" class="btn btn-sm btn-outline-primary">
+                            Download Audio
+                        </button>
+                        <span class="badge bg-success ms-2">Saved to Server</span>
+                    {% else %}
+                        {% set debug_path = 'debug_audio/' + hash_value + '/' + doctor + '/' + rec[0]|string %}
+                        {% if debug_path|exists_dir %}
+                            <!-- Audio is in debug storage -->
+                            <button onclick="downloadAudioVersion('{{ hash_value }}', '{{ doctor }}', {{ rec[0] }})" class="btn btn-sm btn-outline-secondary">
+                                Download Audio
+                            </button>
+                            <button onclick="saveAudioPermanent('{{ hash_value }}', '{{ doctor }}', {{ rec[0] }})" class="btn btn-sm btn-outline-primary">
+                                Save to Server
+                            </button>
+                            <span class="text-muted ms-2"><small>Debug audio available for 48 hours</small></span>
+                        {% endif %}
+                    {% endif %}
+                </div>
             </p>
             <div class="summary-section">
                 {{ rec[3] | markdown | safe }}
@@ -207,12 +260,7 @@
                     <summary>Raw Transcript</summary>
                     <p>{{ rec[2] }}</p>
                 </details>
-                <button 
-                    onclick="retryTranscript(`{{ rec[2] | replace('`', '\\`') | safe }}`)" 
-                    class="retry-btn btn btn-sm"
-                >
-                    Retry with current settings
-                </button>
+
                 {% if rec[6] %}
                     <p><em>Audio file saved locally</em></p>
                 {% endif %}
@@ -221,6 +269,66 @@
         {% endfor %}
     </div>
 
+    </div>
+
+    <!-- Retry Modal -->
+    <div class="modal fade" id="retryModal" tabindex="-1" aria-labelledby="retryModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="retryModalLabel">Retry with Different Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="retryModel" class="form-label">Select LLM Model:</label>
+                        <select id="retryModel" class="form-select">
+                            {% for model, is_default in llm_models %}
+                                <option value="{{ model }}" {% if is_default %}selected{% endif %}>
+                                    {{ model }}{% if is_default %} (Default){% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="retryPrompt" class="form-label">Select Prompt:</label>
+                        <select id="retryPrompt" class="form-select" onchange="updateRetryPromptText()">
+                            <option value="custom">Custom Prompt</option>
+                            {% for prompt in prompts %}
+                                <option value="{{ prompt[0] }}">
+                                    #{{ prompt[2] }} - {{ prompt[0][:100] }}...
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="retryPromptText" class="form-label">Prompt Text:</label>
+                        <textarea id="retryPromptText" class="form-control" rows="4">{{ prompts[0][0] if prompts else 'Enter custom prompt here...' }}</textarea>
+                    </div>
+                    <input type="hidden" id="retryTranscript" value="">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="submitRetry()">Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add this modal after your other modals -->
+    <div class="modal fade" id="processingModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="processingModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center">
+                    <h5 class="mb-3">Processing Your Recording</h5>
+                    <div class="progress mb-3">
+                        <div id="processingProgress" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <p id="processingMessage" class="mb-2"></p>
+                    <small class="text-muted">Please wait while we process your recording...</small>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -234,13 +342,32 @@
         let recordingChunks = [];
         let chunk_number = 0;
         let recordingInterval = null;
-        const RECORDING_INTERVAL = 5000; // 5 seconds
+        const RECORDING_INTERVAL = 15000; // 15 seconds
         let recordingTime = 0;
         let timerInterval = null;  // Add new variable to track timer interval specifically
         let pendingRequests = new Set();
         let version = {{ next_version_number }};
         // Debug information
         const DEBUG = true;
+        let recordingCompleted = false;
+
+        // Add these to your existing variables
+        const funnyMessages = [
+            "Teaching AI to understand doctor handwriting...",
+            "Consulting with virtual medical board...",
+            "Debugging the human condition...",
+            "Optimizing healthcare one recording at a time...",
+            "Translating medical jargon to English...",
+            "Calculating the meaning of life (and medicine)...",
+            "Performing digital surgery on your audio...",
+            "Consulting with Dr. ChatGPT...",
+            "Applying machine learning bandages...",
+            "Prescribing ones and zeros...",
+        ];
+
+        let processingStartTime;
+        let processingModal;
+        let progressInterval;
 
         function debugLog(message, data = null) {
             if (DEBUG) {
@@ -252,10 +379,26 @@
         async function startRecording() {
             try {
                 debugLog('Starting recording...');
+                
+                // Only increment version if we completed a previous recording
+                if (recordingCompleted) {
+                    version++;
+                    recordingCompleted = false;  // Reset the flag
+                }
+                
+                // Reset chunk number for new recording
+                chunk_number = 0;
+                
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 let chunks = [];
                 
                 mediaRecorder = new MediaRecorder(stream);
+                
+                // Clear previous transcription result if starting a new version
+                if (recordingCompleted) {
+                    document.getElementById('transcriptionResult').innerHTML = '';
+                    document.getElementById('liveTranscript').textContent = '';
+                }
                 
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
@@ -297,6 +440,7 @@
 
         async function stopRecording() {
             debugLog('Stopping recording...');
+            processingStartTime = Date.now();
             
             // Clear recording interval first
             if (recordingInterval) {
@@ -315,78 +459,154 @@
             }
             
             debugLog('Recording stopped');
-            // Update UI
             updateRecordingUI(false);
             
-            // Wait for the final chunk to be processed
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
             try {
+                await showProcessingModal();
+                
+                // Wait for all pending requests to complete
+                await Promise.allSettled(Array.from(pendingRequests));
+                
+                // Add a delay to ensure the final chunk is processed
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Check chunks with timeout
+                const MAX_WAIT_TIME = 30000; // 30 seconds
+                const START_TIME = Date.now();
+                let allProcessed = false;
+                
+                while (Date.now() - START_TIME < MAX_WAIT_TIME && !allProcessed) {
+                    try {
+                        const response = await fetch(`/check_chunks_processed?hash=${encodeURIComponent(hash)}&doctor=${encodeURIComponent(doctor)}&version=${version}&final_chunk=${chunk_number - 1}`);
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        const data = await response.json();
+                        allProcessed = data.all_processed;
+                        
+                        if (!allProcessed) {
+                            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before next check
+                        }
+                    } catch (error) {
+                        console.error('Error checking chunks:', error);
+                        break;
+                    }
+                }
+                
+                if (!allProcessed) {
+                    throw new Error('Timeout waiting for chunks to process');
+                }
+
+                // Rest of the processing...
                 debugLog('Fetching final transcription from server...');
                 const response = await fetch(`/get_transcription?hash=${encodeURIComponent(hash)}&doctor=${encodeURIComponent(doctor)}&version=${version}`);
                 
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
                 const data = await response.json();
                 const fullTranscription = data.transcription;
                 
-                debugLog('Final transcription:', fullTranscription);
-                
-                // Generate final summary
                 if (fullTranscription) {
                     debugLog('Generating final summary...');
                     await generateFinalSummary(fullTranscription);
+                    recordingCompleted = true;
+                    
+                    // Record processing time
+                    const processingTime = Date.now() - processingStartTime;
+                    await fetch('/record_processing_time', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `hash=${encodeURIComponent(hash)}&doctor=${encodeURIComponent(doctor)}&version=${version}&processing_time=${processingTime}`
+                    });
+                    
+                    // Hide modal after completion
+                    if (progressInterval) {
+                        clearInterval(progressInterval);
+                    }
+                    const progressBar = document.getElementById('processingProgress');
+                    if (progressBar) {
+                        progressBar.style.width = '100%';
+                    }
+                    setTimeout(() => {
+                        if (processingModal) {
+                            processingModal.hide();
+                        }
+                    }, 500);
                 } else {
-                    debugLog('No transcription available for summary');
+                    throw new Error('No transcription data received');
                 }
+                
             } catch (error) {
-                console.error('Error getting transcription:', error);
-                alert('Error processing transcription: ' + error.message);
+                console.error('Error in stopRecording:', error);
+                if (processingModal) {
+                    processingModal.hide();
+                }
+                alert('Error processing recording. Some data may have been lost. Please try again.');
             }
         }
 
         async function sendChunkToServer(audioBlob, timestamp) {
+            const MAX_RETRIES = 3;
+            const RETRY_DELAY = 1000; // 1 second
+            let attempts = 0;
+
             const formData = new FormData();
             formData.append('audio', audioBlob);
-            formData.append('chunk_number', chunk_number.toString());  // Use sequential number
+            formData.append('chunk_number', chunk_number.toString());
             formData.append('hash', hash);
             formData.append('doctor', doctor);
             formData.append('version', version);
             
             debugLog(`Sending chunk ${chunk_number} to server (size: ${audioBlob.size} bytes)`);
-            chunk_number++;  // Increment after using it
-            
-            try {
-                const requestPromise = fetch('/transcribe_chunk', {
-                    method: 'POST',
-                    body: formData
-                }).then(async response => {
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            chunk_number++;
+
+            while (attempts < MAX_RETRIES) {
+                try {
+                    const requestPromise = fetch('/transcribe_chunk', {
+                        method: 'POST',
+                        body: formData
+                    }).then(async response => {
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                        }
+                        const result = await response.json();
+                        debugLog(`Received transcription for chunk ${chunk_number - 1}:`, result);
+                        
+                        if (result.transcription) {
+                            updateTranscriptionUI(result.transcription);
+                        }
+
+                        if (result.error) {
+                            console.log(result.error)
+                        }
+                        
+                        pendingRequests.delete(requestPromise);
+                    }).catch(error => {
+                        debugLog(`Error processing chunk ${chunk_number - 1}:`, error);
+                        pendingRequests.delete(requestPromise);
+                        throw error;
+                    });
+                    
+                    pendingRequests.add(requestPromise);
+                    return; // Success, exit the retry loop
+                    
+                } catch (error) {
+                    attempts++;
+                    debugLog(`Attempt ${attempts} failed for chunk ${chunk_number - 1}:`, error);
+                    
+                    if (attempts === MAX_RETRIES) {
+                        debugLog(`All retry attempts failed for chunk ${chunk_number - 1}`);
+                        updateTranscriptionUI(" [Connection error - some audio may be lost] ");
+                    } else {
+                        debugLog(`Retrying in ${RETRY_DELAY}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
                     }
-                    const result = await response.json();
-                    debugLog(`Received transcription for chunk ${result.chunk_number}:`, result);
-                    
-                    // Update UI with transcription
-                    updateTranscriptionUI(result.transcription);
-                    
-                    // Remove from pending requests
-                    pendingRequests.delete(requestPromise);
-                }).catch(error => {
-                    debugLog(`Error processing chunk ${chunk_number}:`, error);
-                    pendingRequests.delete(requestPromise);
-                    throw error;
-                });
-                
-                // Add to pending requests
-                pendingRequests.add(requestPromise);
-                
-            } catch (error) {
-                debugLog(`Error sending chunk ${chunk_number}:`, error);
+                }
             }
         }
 
@@ -473,173 +693,6 @@
             }
         }
 
-        async function extractWebMHeaders(blob) {
-            const arrayBuffer = await blob.arrayBuffer();
-            const dataView = new DataView(arrayBuffer);
-            
-            // Look for the first Cluster element (0x1F43B675)
-            let offset = 0;
-            while (offset < arrayBuffer.byteLength - 4) {
-                if (dataView.getUint32(offset) === 0x1f43b675) {
-                    // Found Cluster, everything before this is headers
-                    console.log('Found WebM headers, size:', offset);
-                    return arrayBuffer.slice(0, offset);
-                }
-                offset++;
-            }
-            console.log('No Cluster found in blob of size:', arrayBuffer.byteLength);
-            return null;
-        }
-
-        async function analyzeWebMChunk(chunk) {
-            console.log('[WebM Analysis] Starting chunk analysis');
-            
-            // Convert Blob to ArrayBuffer if needed
-            if (chunk instanceof Blob) {
-                return new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const elements = parseEBMLElements(reader.result);
-                        logElements(elements);
-                        resolve();
-                    };
-                    reader.readAsArrayBuffer(chunk);
-                });
-            }
-
-            // If already ArrayBuffer
-            const elements = parseEBMLElements(chunk);
-            logElements(elements);
-        }
-
-        function logElements(elements) {
-            elements.forEach(el => {
-                console.log(`[WebM Element] ID: ${el.idHex}, Size: ${el.size}, Offset: ${el.offset}`);
-            });
-
-            // Specifically look for Cluster elements (ID: 1f 43 b6 75)
-            const clusters = elements.filter(el => 
-                el.idBytes && 
-                el.idBytes.length === 4 &&
-                el.idBytes[0] === 0x1F &&
-                el.idBytes[1] === 0x43 &&
-                el.idBytes[2] === 0xB6 &&
-                el.idBytes[3] === 0x75
-            );
-            
-            console.log(`[WebM Analysis] Found ${clusters.length} clusters`);
-
-            if (clusters.length === 0) {
-                console.warn('[WebM Analysis] No clusters found in chunk');
-            } else {
-                clusters.forEach(cluster => {
-                    console.log(`[WebM Cluster] Offset: ${cluster.offset}, Size: ${cluster.size}`);
-                });
-            }
-        }
-
-        // Helper function to parse EBML elements from a chunk
-        function parseEBMLElements(buffer) {
-            const elements = [];
-            const view = new DataView(buffer);
-            let offset = 0;
-
-            // Known EBML IDs (in hex)
-            const CLUSTER_ID = [0x1F, 0x43, 0xB6, 0x75];
-            const SIMPLEBLOCK_ID = [0xA3];
-            const TIMECODE_ID = [0xE7];
-
-            while (offset < buffer.byteLength - 4) {
-                try {
-                    // Read first 4 bytes to check for Cluster
-                    const idBytes = new Uint8Array(buffer.slice(offset, offset + 4));
-                    
-                    // If we find what looks like random data, try scanning forward
-                    if (!isValidEBMLId(idBytes[0])) {
-                        offset++;
-                        continue;
-                    }
-
-                    let idLength = getVIntLength(idBytes[0]);
-                    if (idLength === 0 || offset + idLength >= buffer.byteLength) {
-                        offset++;
-                        continue;
-                    }
-
-                    // Read size bytes
-                    const sizeByte = view.getUint8(offset + idLength);
-                    let sizeLength = getVIntLength(sizeByte);
-                    if (sizeLength === 0 || offset + idLength + sizeLength >= buffer.byteLength) {
-                        offset++;
-                        continue;
-                    }
-
-                    let dataSize = readVInt(view, offset + idLength, sizeLength);
-                    if (dataSize < 0 || dataSize > buffer.byteLength) {
-                        offset++;
-                        continue;
-                    }
-
-                    const headerLength = idLength + sizeLength;
-                    const totalLength = headerLength + dataSize;
-
-                    // Check if this is a cluster
-                    if (idLength === 4 && 
-                        idBytes[0] === CLUSTER_ID[0] && 
-                        idBytes[1] === CLUSTER_ID[1] && 
-                        idBytes[2] === CLUSTER_ID[2] && 
-                        idBytes[3] === CLUSTER_ID[3]) {
-                        console.log('[WebM] Found Cluster:', {offset, size: dataSize});
-                    }
-
-                    elements.push({
-                        offset,
-                        idBytes: Array.from(idBytes.slice(0, idLength)),
-                        size: dataSize,
-                        headerLength,
-                        totalLength,
-                        idHex: Array.from(idBytes.slice(0, idLength))
-                            .map(b => b.toString(16).padStart(2, '0'))
-                            .join(' ')
-                    });
-
-                    offset += totalLength;
-                } catch (e) {
-                    console.error('Error parsing EBML at offset', offset, e);
-                    offset++;
-                }
-            }
-            return elements;
-        }
-
-        // Helper functions
-        function isValidEBMLId(firstByte) {
-            // EBML IDs must start with a 1 bit
-            return (firstByte & 0x80) !== 0;
-        }
-
-        function getVIntLength(firstByte) {
-            for (let i = 0; i < 8; i++) {
-                if ((firstByte & (0x80 >> i)) !== 0) {
-                    return i + 1;
-                }
-            }
-            return 0;
-        }
-
-        function readVInt(view, offset, length) {
-            let value = view.getUint8(offset) & (0xFF >> length);
-            for (let i = 1; i < length; i++) {
-                if (offset + i >= view.byteLength) return -1;
-                value = (value << 8) | view.getUint8(offset + i);
-            }
-            return value;
-        }
-
-        function byteToHex(num) {
-            return num.toString(16).padStart(8, '0').match(/.{2}/g).join(' ');
-        }
-
         async function generateFinalSummary(fullTranscription) {
             debugLog('Starting generateFinalSummary with transcription:', fullTranscription);
             
@@ -667,14 +720,12 @@
                 debugLog('Parsed response:', result);
                 
                 document.getElementById('transcriptionResult').innerHTML = `
-                    <h4>Version ${result.version}</h4>
+                    <div class="mt-2">
+                        ${marked.parse(result.summary)}
+                    </div>
                     <details>
                         <summary>Raw Transcript</summary>
-                        <p>${result.raw_transcript}</p>
-                    </details>
-                    <details>
-                        <summary>Summary</summary>
-                        <p>${result.summary}</p>
+                        <p class="mt-2">${result.raw_transcript}</p>
                     </details>
                 `;
                 document.getElementById('result').classList.remove('hidden');
@@ -686,54 +737,191 @@
             }
         }
 
-        function copyTextFromElement(element) {
-            const text = element.innerText || element.textContent;
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Summary copied to clipboard!');
+        function copySummary() {
+            const transcriptionResult = document.getElementById('transcriptionResult');
+            // Get only the first div with class mt-2 which contains the summary
+            const summaryDiv = transcriptionResult.querySelector('.mt-2');
+            if (!summaryDiv) return;
+            
+            // Create a temporary element to hold the HTML content
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = summaryDiv.innerHTML;
+            
+            // Write both HTML and plain text to clipboard
+            const clipboardData = new ClipboardItem({
+                'text/plain': new Blob([summaryDiv.innerText], { type: 'text/plain' }),
+                'text/html': new Blob([tempDiv.innerHTML], { type: 'text/html' })
+            });
+            
+            navigator.clipboard.write([clipboardData]).then(() => {
+                // Create or get toast notification
+                let toast = document.getElementById('copyToast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.id = 'copyToast';
+                    toast.style.cssText = `
+                        position: fixed;
+                        bottom: 20px;
+                        right: 20px;
+                        background: rgba(0,0,0,0.8);
+                        color: white;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        z-index: 1000;
+                        transition: opacity 0.3s;
+                    `;
+                    document.body.appendChild(toast);
+                }
+                
+                // Show toast
+                toast.textContent = 'Summary copied to clipboard';
+                toast.style.opacity = '1';
+                
+                // Hide toast after 2 seconds
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                }, 2000);
             }).catch(err => {
                 console.error('Failed to copy text: ', err);
             });
         }
 
-        async function retryTranscript(transcription) {
-            startProcessingTimer();
+        function copyTextFromElement(element) {
+            // Find the first paragraph in the summary section
+            const summaryDiv = element.querySelector('.summary-section');
+            if (!summaryDiv) return;
             
-            const formData = new FormData();
-            formData.append('prompt', document.getElementById('prompt').value);
-            formData.append('model', document.getElementById('llmModel').value);
-            formData.append('hash', hash);
-            formData.append('doctor', doctor);
-            formData.append('raw_transcript', transcription);
-        
+            // Create a temporary element to hold the HTML content
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = summaryDiv.innerHTML;
+            
+            // Write both HTML and plain text to clipboard
+            const clipboardData = new ClipboardItem({
+                'text/plain': new Blob([summaryDiv.innerText], { type: 'text/plain' }),
+                'text/html': new Blob([tempDiv.innerHTML], { type: 'text/html' })
+            });
+            
+            navigator.clipboard.write([clipboardData]).then(() => {
+                // Create or get toast notification
+                let toast = document.getElementById('copyToast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.id = 'copyToast';
+                    toast.style.cssText = `
+                        position: fixed;
+                        bottom: 20px;
+                        right: 20px;
+                        background: rgba(0,0,0,0.8);
+                        color: white;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        z-index: 1000;
+                        transition: opacity 0.3s;
+                    `;
+                    document.body.appendChild(toast);
+                }
+                
+                // Show toast
+                toast.textContent = 'Summary copied to clipboard';
+                toast.style.opacity = '1';
+                
+                // Hide toast after 2 seconds
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+
+        function showRetryModal(transcript) {
+            document.getElementById('retryTranscript').value = transcript;
+            const modal = new bootstrap.Modal(document.getElementById('retryModal'));
+            modal.show();
+        }
+
+        function updateRetryPromptText() {
+            const select = document.getElementById('retryPrompt');
+            const textarea = document.getElementById('retryPromptText');
+            if (select.value === 'custom') {
+                textarea.value = '';
+            } else {
+                textarea.value = select.value;
+            }
+        }
+
+        async function submitRetry() {
+            // Show loading state
+            const submitButton = document.querySelector('#retryModal .modal-footer .btn-primary');
+            const originalText = submitButton.textContent;
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Loading...';
+            
+            const transcript = document.getElementById('retryTranscript').value;
+            const model = document.getElementById('retryModel').value;
+            const prompt = document.getElementById('retryPromptText').value;
+            
             try {
-                const response = await fetch('/retry_summary', {
+                // Increment version number
+                version++;
+                
+                const formData = new FormData();
+                formData.append('hash', hash);
+                formData.append('doctor', doctor);
+                formData.append('prompt', prompt);
+                formData.append('model', model);
+                formData.append('transcription', transcript);
+
+                const response = await fetch('/generate_summary', {
                     method: 'POST',
                     body: formData
                 });
-        
-                const result = await response.json();
-                stopProcessingTimer();
-        
-                document.getElementById('transcriptionResult').innerHTML = `
-                    <h4>Version ${result.version}</h4>
-                    <details>
-                        <summary>Raw Transcript</summary>
-                        <p>${result.raw_transcript}</p>
-                    </details>
-                    <details>
-                        <summary>Summary</summary>
-                        <p>${result.response}</p>
-                    </details>
-                `;
-                document.getElementById('result').classList.remove('hidden');
                 
-                // Reload page to show updated previous recordings
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Hide modal
+                bootstrap.Modal.getInstance(document.getElementById('retryModal')).hide();
+                
+                // Show loading overlay
+                const overlay = document.createElement('div');
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(255, 255, 255, 0.8);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 9999;
+                `;
+                overlay.innerHTML = `
+                    <div class="text-center">
+                        <div class="spinner-border text-primary mb-2" role="status"></div>
+                        <div>Generating new summary...</div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+                
+                // Reload page to show new version and scroll to top
                 location.reload();
+                
             } catch (error) {
                 console.error('Error:', error);
-                alert('Error processing transcript');
-                stopProcessingTimer();
+                alert('Error generating new summary: ' + error.message);
+                
+                // Reset button state
+                submitButton.disabled = false;
+                submitButton.textContent = originalText;
             }
+        }
+
+        // Update the existing retry button onclick handler
+        function retryTranscript(transcript) {
+            showRetryModal(transcript);
         }
 
         async function savePrompt(isDefault) {
@@ -859,6 +1047,124 @@
                 debugLog('Stop button listener added');
             }
         });
+
+        async function downloadAudioVersion(hash, doctor, version) {
+            try {
+                const response = await fetch(`/download_audio/${hash}/${doctor}/${version}`);
+                if (!response.ok) {
+                    throw new Error('Download failed');
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `recording_${hash}_${doctor}_v${version}.webm`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Error downloading audio:', error);
+                alert('Error downloading audio file');
+            }
+        }
+
+        async function saveAudioPermanent(hash, doctor, version) {
+            if (!confirm('Saving the audio file permanently requires patient consent. Continue?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/save_audio_permanent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `hash=${encodeURIComponent(hash)}&doctor=${encodeURIComponent(doctor)}&version=${version}`
+                });
+
+                if (!response.ok) {
+                    throw new Error('Save failed');
+                }
+
+                // Reload the page to show updated status
+                location.reload();
+            } catch (error) {
+                console.error('Error saving audio:', error);
+                alert('Error saving audio file permanently');
+            }
+        }
+
+        async function showProcessingModal() {
+            try {
+                // Check if modal exists and initialize if needed
+                if (!processingModal) {
+                    const modalElement = document.getElementById('processingModal');
+                    if (!modalElement) {
+                        console.error('Processing modal element not found');
+                        return;
+                    }
+                    processingModal = new bootstrap.Modal(modalElement, {
+                        backdrop: 'static',
+                        keyboard: false
+                    });
+                }
+
+                // Use hardcoded messages as fallback if server fetch fails
+                let funnyMessages = [
+                    "Processing your recording...",
+                    "Almost there...",
+                    "Working on it..."
+                ];
+
+                try {
+                    const quotesResponse = await fetch('/get_funny_quotes');
+                    const quotesData = await quotesResponse.json();
+                    if (quotesData.quotes && quotesData.quotes.length > 0) {
+                        funnyMessages = quotesData.quotes;
+                    }
+                } catch (error) {
+                    console.error('Error fetching quotes:', error);
+                    // Continue with fallback messages
+                }
+
+                const response = await fetch('/get_average_processing_time');
+                const data = await response.json();
+                const expectedDuration = data.average_time;
+                
+                const progressBar = document.getElementById('processingProgress');
+                const messageElement = document.getElementById('processingMessage');
+                
+                let progress = 0;
+                progressBar.style.width = '0%';
+                messageElement.textContent = funnyMessages[Math.floor(Math.random() * funnyMessages.length)];
+                
+                processingModal.show();
+                
+                // Clear any existing interval
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                }
+                
+                // Update progress bar
+                const updateInterval = 100; // Update every 100ms
+                const incrementPerUpdate = (updateInterval / expectedDuration) * 100;
+                
+                progressInterval = setInterval(() => {
+                    progress = Math.min(progress + incrementPerUpdate, 99);
+                    progressBar.style.width = `${progress}%`;
+                    
+                    // Change message at 50% progress
+                    if (Math.floor(progress) === 50) {
+                        messageElement.textContent = funnyMessages[Math.floor(Math.random() * funnyMessages.length)];
+                    }
+                }, updateInterval);
+            } catch (error) {
+                console.error('Error in showProcessingModal:', error);
+                alert('Processing your recording... Please wait.');
+            }
+        }
     </script>
 </body>
 </html>
