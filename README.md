@@ -17,8 +17,8 @@ This has no password protection, so make sure it's maintained and used purely in
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/audiotranscription.git
-cd audiotranscription
+git clone https://github.com/coote-andrew/Local-Ambient-AI.git
+cd flask_speech_server
 ```
 
 ## 2. Set Up a Virtual Environment
