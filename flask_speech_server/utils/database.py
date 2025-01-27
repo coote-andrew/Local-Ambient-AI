@@ -39,7 +39,9 @@ def init_db():
                 prompt_text TEXT NOT NULL,
                 is_default BOOLEAN DEFAULT FALSE,
                 priority INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                parent_id INTEGER,  -- to track if this was copied from a system prompt
+                FOREIGN KEY (parent_id) REFERENCES prompts(id)
             )
         ''')
 

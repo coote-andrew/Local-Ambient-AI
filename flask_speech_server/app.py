@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 import shutil
 import sys
 import json
+from logging.handlers import RotatingFileHandler
 
 
 
@@ -179,18 +180,29 @@ def home():
 
     # Fetch prompts (both global and doctor-specific)
     cursor.execute('''
-        SELECT prompt_text, is_default, id 
-        FROM prompts 
-        WHERE doctor_id = ? OR doctor_id = '~All'
+        SELECT 
+            p.id,
+            p.prompt_text,
+            p.is_default,
+            p.created_at,
+            p.doctor_id = '~All' as is_system,
+            CASE 
+                WHEN p.doctor_id = '~All' 
+                AND p.created_at >= datetime('now', '-7 days') 
+                THEN 1 
+                ELSE 0 
+            END as is_new_system
+        FROM prompts p
+        WHERE p.doctor_id = ? OR p.doctor_id = '~All'
         ORDER BY 
             CASE 
-                WHEN doctor_id = ? THEN 0 
+                WHEN p.doctor_id = ? THEN 0 
                 ELSE 1 
             END,
-            is_default DESC,
-            priority DESC
+            p.created_at DESC
     ''', (doctor, doctor))
     prompts = cursor.fetchall()
+    print(f"Prompts: {prompts}")
 
     # Fetch previous recordings
     cursor.execute('''
@@ -231,6 +243,7 @@ def retry_summary():
         
         # Try to get the summary
         prompt = custom_prompt + "\nHere is the transcription: " + transcription
+
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
@@ -277,7 +290,8 @@ def retry_summary():
 def save_prompt():
     doctor = request.form.get('doctor')
     prompt_text = request.form.get('prompt_text')
-    is_default = request.form.get('is_default', 'false').lower() == 'true'
+    prompt_id = request.form.get('prompt_id')  # New field
+    set_default = request.form.get('set_default', 'false').lower() == 'true'
     
     if not doctor or not prompt_text:
         return jsonify({"error": "Missing required fields"}), 400
@@ -286,15 +300,68 @@ def save_prompt():
         conn = sqlite3.connect('app.db')
         cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO prompts (doctor_id, prompt_text, is_default)
-            VALUES (?, ?, ?)
-        ''', (doctor, prompt_text, is_default))
+        # If setting as default, unset any existing defaults for this doctor
+        if set_default:
+            cursor.execute('''
+                UPDATE prompts 
+                SET is_default = FALSE 
+                WHERE doctor_id = ? AND is_default = TRUE
+            ''', (doctor,))
+
+        if prompt_id:
+            # Check if this is a system prompt
+            cursor.execute('SELECT doctor_id FROM prompts WHERE id = ?', (prompt_id,))
+            owner = cursor.fetchone()
+            
+            if owner and owner[0] == '~All':
+                # Create new prompt for doctor based on system prompt
+                cursor.execute('''
+                    INSERT INTO prompts (doctor_id, prompt_text, is_default, parent_id)
+                    VALUES (?, ?, ?, ?)
+                ''', (doctor, prompt_text, set_default, prompt_id))
+            else:
+                # Update existing prompt
+                cursor.execute('''
+                    UPDATE prompts 
+                    SET prompt_text = ?, is_default = ?
+                    WHERE id = ? AND doctor_id = ?
+                ''', (prompt_text, set_default, prompt_id, doctor))
+        else:
+            # Create new prompt
+            cursor.execute('''
+                INSERT INTO prompts (doctor_id, prompt_text, is_default)
+                VALUES (?, ?, ?)
+            ''', (doctor, prompt_text, set_default))
         
         conn.commit()
+        
+        # Fetch updated prompts list
+        cursor.execute('''
+            SELECT 
+                p.id,
+                p.prompt_text,
+                p.is_default,
+                p.created_at,
+                p.doctor_id = '~All' as is_system,
+                CASE 
+                    WHEN p.doctor_id = '~All' 
+                    AND p.created_at >= datetime('now', '-7 days') 
+                    THEN 1 
+                    ELSE 0 
+                END as is_new_system
+            FROM prompts p
+            WHERE p.doctor_id IN ('~All', ?)
+            ORDER BY p.created_at DESC
+        ''', (doctor,))
+        
+        prompts = cursor.fetchall()
         conn.close()
         
-        return jsonify({"message": "Prompt saved successfully"}), 200
+        return jsonify({
+            "message": "Prompt saved successfully",
+            "prompts": prompts
+        }), 200
+        
     except sqlite3.Error as e:
         logging.error(f"Error saving prompt: {e}")
         return jsonify({"error": str(e)}), 500
@@ -343,8 +410,7 @@ def transcribe_chunk():
             if transcription["status"] == "success":
                 error = transcription["error"]
                 transcription = clean_transcription(transcription["transcription"])
-                print(f"*****************Transcription: {transcription}")
-                print(f"Chunk number: {chunk_number}")
+
                 # Save transcription for debugging
             else:
                 error = transcription["error"]
@@ -396,7 +462,6 @@ def process_queue_worker():
                     item['callback'](transcription)
                 
             except Exception as e:
-                print(f"Error processing queued chunk: {e}")
                 traceback.print_exc()
             
             finally:
@@ -405,7 +470,6 @@ def process_queue_worker():
         except Empty:
             continue
         except Exception as e:
-            print(f"Error in queue worker: {e}")
             traceback.print_exc()
 
 # Start queue processing workers
@@ -452,7 +516,6 @@ def generate_summary():
             ''', (hash_value, doctor, current_version)).fetchall()
             full_transcript = " ".join([chunk[0] for chunk in chunks])
         else:
-            print("saving chunk_transcriptions")
             cursor.execute('''
                 INSERT INTO chunk_transcriptions 
                 (hash, doctor, version, chunk_number, transcription)
@@ -502,11 +565,34 @@ def find_text_overlap(prev_chunk, current_chunk):
         }
     return None
 
-logging.basicConfig(
-    filename='app.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Set up logging to both file and console
+logging.basicConfig(level=logging.INFO)  # This sets up console logging
+
+# Create file handler
+file_handler = RotatingFileHandler(
+    'app.log',
+    maxBytes=1024 * 1024,  # 1MB
+    backupCount=5
 )
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+))
+
+# Get the root logger and add the file handler
+root_logger = logging.getLogger()
+root_logger.addHandler(file_handler)
+
+log_path = os.path.abspath('app.log')
+print(f"Log file should be at: {log_path}")
+logging.info("Application starting up")
+
+try:
+    with open('app.log', 'a') as f:
+        pass
+    print("Successfully opened log file")
+except Exception as e:
+    print(f"Error accessing log file: {e}")
 
 def generate_llm_summary(transcript, prompt, model_name):
     """Generate a summary using the LLM"""

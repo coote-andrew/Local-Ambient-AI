@@ -148,24 +148,41 @@
                     </select>
                 </div>
                 <div class="col-md-6">
-                    <label for="promptSelect" class="form-label">Select Prompt:</label>
-                    <select id="promptSelect" class="form-select" onchange="updatePromptText()">
-                        <option value="custom">Custom Prompt</option>
-                        {% for prompt in prompts %}
-                            <option value="{{ prompt[0] }}">
-                                #{{ prompt[2] }} - {{ prompt[0][:100] }}...
-                            </option>
-                        {% endfor %}
-                    </select>
+                    <div class="mb-3">
+                        <label for="promptSelect" class="form-label">Select Prompt:</label>
+                        <select id="promptSelect" class="form-select" onchange="showPromptDetails()">
+                            {% for prompt in prompts %}
+                                <option value="{{ prompt[1] }}" 
+                                        data-id="{{ prompt[0] }}"
+                                        data-is-system="{{ prompt[4] }}"
+                                        data-is-new="{{ prompt[5] }}"
+                                        data-is-default="{{ prompt[2] }}">
+                                    (#{{ prompt[0] }})
+                                    {% if prompt[2] %}
+                                        {% if prompt[4] %}[Sys Def]{% else %}[My Def]{% endif %}
+                                    {% endif %}
+                                    {% if prompt[5] %}[New!]{% endif %}
+                                    {{ prompt[1][:100] }}...
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
-            </div>
-            <div class="mb-3">
-                <label for="prompt" class="form-label">Prompt Text:</label>
-                <textarea id="prompt" class="form-control" rows="4">{{ prompts[0][0] if prompts else 'Enter custom prompt here...' }}</textarea>
-                <div class="mt-2">
-                    <button onclick="savePrompt(true)" class="btn btn-outline-primary btn-sm">Save prompt as Default for me</button>
-                    <button onclick="savePrompt(false)" class="btn btn-outline-secondary btn-sm">Save as Additional Prompt</button>
+
+                <div class="mb-3 w-100">
+                    <label for="prompt" class="form-label">Prompt Text:</label>
+                    <textarea id="prompt" class="form-control" rows="4">{{ prompts[0][1] if prompts else '' }}</textarea>
+                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                        <div>
+                            <button onclick="savePrompt(false)" class="btn btn-primary">Save Changes</button>
+                            <button onclick="savePrompt(true)" class="btn btn-outline-primary">Save as Default</button>
+                        </div>
+                        <div id="promptStatus" class="text-muted small">
+                            <!-- Status text will be inserted here -->
+                        </div>
+                    </div>
                 </div>
+                
             </div>
         </div>
 
@@ -179,7 +196,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h4 class="mb-0">Summary</h4>
                     <div>
-                        <button onclick="copySummary()" class="btn btn-sm btn-outline-secondary me-2">Copy Summary</button>
+                        <button onclick="copySummary()" class="btn btn-sm btn-primary me-2">Copy Summary</button>
                         <button onclick="retryTranscript(document.querySelector('#result details p').textContent)" class="btn btn-sm btn-outline-secondary">
                             Retry with different settings
                         </button>
@@ -296,14 +313,14 @@
                             <option value="custom">Custom Prompt</option>
                             {% for prompt in prompts %}
                                 <option value="{{ prompt[0] }}">
-                                    #{{ prompt[2] }} - {{ prompt[0][:100] }}...
+                                    #{{ prompt[2] }} - {{ prompt[1][:100] }}...
                                 </option>
                             {% endfor %}
                         </select>
                     </div>
                     <div class="mb-3">
                         <label for="retryPromptText" class="form-label">Prompt Text:</label>
-                        <textarea id="retryPromptText" class="form-control" rows="4">{{ prompts[0][0] if prompts else 'Enter custom prompt here...' }}</textarea>
+                        <textarea id="retryPromptText" class="form-control" rows="4">{{ prompts[0][1] if prompts else 'Enter custom prompt here...' }}</textarea>
                     </div>
                     <input type="hidden" id="retryTranscript" value="">
                 </div>
@@ -368,6 +385,9 @@
         let processingStartTime;
         let processingModal;
         let progressInterval;
+
+        let promptModal;
+        let currentPromptId = null;
 
         function debugLog(message, data = null) {
             if (DEBUG) {
@@ -924,27 +944,34 @@
             showRetryModal(transcript);
         }
 
-        async function savePrompt(isDefault) {
-            const formData = new FormData();
-            formData.append('doctor', doctor);
-            formData.append('prompt_text', document.getElementById('prompt').value);
-            formData.append('is_default', isDefault);
-
+        async function savePrompt(setDefault) {
+            const promptText = document.getElementById('prompt').value;
+            const doctor = '{{ doctor }}';
+            
             try {
                 const response = await fetch('/save_prompt', {
                     method: 'POST',
-                    body: formData
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        doctor: doctor,
+                        prompt_text: promptText,
+                        prompt_id: currentPromptId,
+                        set_default: setDefault
+                    })
                 });
-
+                
+                const data = await response.json();
                 if (response.ok) {
-                    alert('Prompt saved successfully');
-                    location.reload();
+                    // Update the prompts list
+                    updatePromptsList(data.prompts);
+                    showAlert('success', 'Prompt saved successfully');
                 } else {
-                    alert('Error saving prompt');
+                    showAlert('error', data.error);
                 }
             } catch (error) {
-                console.error('Error:', error);
-                alert('Error saving prompt');
+                showAlert('error', 'Failed to save prompt');
             }
         }
 
@@ -1046,7 +1073,65 @@
                 stopButton.addEventListener('click', stopRecording);
                 debugLog('Stop button listener added');
             }
+
+            showPromptDetails();
         });
+
+        function showPromptDetails() {
+            const select = document.getElementById('promptSelect');
+            const option = select.selectedOptions[0];
+            const promptText = document.getElementById('prompt');
+            const statusDiv = document.getElementById('promptStatus');
+            
+            currentPromptId = option.dataset.id;
+            // Set the full text from the option's value
+            promptText.value = select.value;
+            
+            // Update status text
+            let status = [];
+            if (option.dataset.isSystem === 'True') {
+                status.push('Changes will create a new personal prompt');
+            }
+            if (option.dataset.isDefault === 'True') {
+                if (option.dataset.isSystem === 'True') {
+                    status.push('Current system default');
+                } else {
+                    status.push('Current personal default');
+                }
+            }
+            
+            statusDiv.textContent = status.join(' • ');
+        }
+
+        function updatePromptsList(prompts) {
+            const select = document.getElementById('promptSelect');
+            select.innerHTML = '';
+            
+            prompts.forEach(prompt => {
+                const option = document.createElement('option');
+                option.value = prompt[1];  // Full prompt text as value
+                option.dataset.id = prompt[0];
+                option.dataset.isSystem = prompt[4];
+                option.dataset.isNew = prompt[5];
+                option.dataset.isDefault = prompt[2];
+                
+                let label = `(#${prompt[0]})`;
+                if (prompt[2]) {
+                    if (prompt[4]) {
+                        label += ' [System Default]';
+                    } else {
+                        label += ' [My Default]';
+                    }
+                }
+                if (prompt[5]) label += ' [New!]';
+                label += ' ' + prompt[1].substring(0, 100) + '...';
+                
+                option.textContent = label;
+                select.appendChild(option);
+            });
+            
+            showPromptDetails();
+        }
 
         async function downloadAudioVersion(hash, doctor, version) {
             try {
