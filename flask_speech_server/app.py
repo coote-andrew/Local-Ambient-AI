@@ -1261,6 +1261,52 @@ def generate_from_data():
             "generated_text": str(e)
         }), 500
 
+@app.route('/check_pending_transcripts', methods=['GET'])
+def check_pending_transcripts():
+    hash_value = request.args.get('hash')
+    doctor = request.args.get('doctor')
+    
+    if not hash_value or not doctor:
+        return jsonify({"error": "Missing required parameters"}), 400
+        
+    try:
+        conn = sqlite3.connect('app.db')
+        cursor = conn.cursor()
+        
+        # Get highest chunk version and transcription version
+        cursor.execute('''
+            SELECT 
+                COALESCE(MAX(ct.version), 0) as chunk_version,
+                COALESCE(MAX(t.version), 0) as trans_version,
+                (
+                    SELECT GROUP_CONCAT(transcription, ' ')
+                    FROM chunk_transcriptions 
+                    WHERE hash = ? AND doctor = ? AND version = COALESCE(MAX(ct.version), 0)
+                    ORDER BY chunk_number
+                ) as pending_transcript
+            FROM chunk_transcriptions ct
+            LEFT JOIN transcriptions t 
+            ON ct.hash = t.hash AND ct.doctor = t.doctor
+            WHERE ct.hash = ? AND ct.doctor = ?
+        ''', (hash_value, doctor, hash_value, doctor))
+        
+        result = cursor.fetchone()
+        
+        if result and result[0] > result[1]:
+            return jsonify({
+                "has_pending": True,
+                "version": result[0],
+                "transcript": result[2]
+            }), 200
+            
+        return jsonify({"has_pending": False}), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
 # Run the app
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True, ssl_context=("cert.pem", "key.pem"))

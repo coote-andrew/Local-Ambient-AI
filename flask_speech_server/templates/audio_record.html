@@ -228,6 +228,15 @@
             <p id="loading" class="hidden">Loading...</p>
         </div>
 
+        <div id="pendingTranscript" class="mt-3 hidden">
+            <div class="alert alert-warning">
+                <h5>Pending Transcript</h5>
+                <p>A transcript was found that hasn't been summarized yet.</p>
+                <div class="pending-content mb-2"></div>
+                <button onclick="sendPendingForSummary()" class="btn btn-primary">Generate Summary</button>
+            </div>
+        </div>
+
     <div id="previousRecordings">
         <h3>Previous Recordings</h3>
         {% for rec in previous_recordings %}
@@ -1075,6 +1084,7 @@
             }
 
             showPromptDetails();
+            checkPendingTranscripts();
         });
 
         function showPromptDetails() {
@@ -1248,6 +1258,77 @@
             } catch (error) {
                 console.error('Error in showProcessingModal:', error);
                 alert('Processing your recording... Please wait.');
+            }
+        }
+
+        async function checkPendingTranscripts() {
+            try {
+                const response = await fetch(`/check_pending_transcripts?hash=${encodeURIComponent(hash)}&doctor=${encodeURIComponent(doctor)}`);
+                const data = await response.json();
+                
+                if (data.has_pending) {
+                    const pendingDiv = document.getElementById('pendingTranscript');
+                    pendingDiv.classList.remove('hidden');
+                    pendingDiv.querySelector('.pending-content').textContent = data.transcript;
+                    window.pendingVersion = data.version;
+                    window.pendingTranscript = data.transcript;
+                }
+            } catch (error) {
+                console.error('Error checking pending transcripts:', error);
+            }
+        }
+
+        async function sendPendingForSummary() {
+            if (!window.pendingTranscript) return;
+            
+            try {
+                const formData = new FormData();
+                formData.append('hash', hash);
+                formData.append('doctor', doctor);
+                formData.append('prompt', document.getElementById('prompt').value);
+                formData.append('model', document.getElementById('llmModel').value);
+                formData.append('transcription', window.pendingTranscript);
+                
+                const response = await fetch('/generate_summary', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                // Update UI with the summary
+                document.getElementById('transcriptionResult').innerHTML = `
+                    <div class="mt-2">
+                        ${marked.parse(result.summary)}
+                    </div>
+                    <details>
+                        <summary>Raw Transcript</summary>
+                        <p class="mt-2">${result.raw_transcript}</p>
+                    </details>
+                `;
+                document.getElementById('result').classList.remove('hidden');
+                
+                // Hide pending transcript section
+                document.getElementById('pendingTranscript').classList.add('hidden');
+                
+                // Update version number
+                version = result.version;
+                recordingCompleted = true;
+                
+                // Clear pending data
+                window.pendingVersion = null;
+                window.pendingTranscript = null;
+                
+                // Reload page to show updated version in previous recordings
+                location.reload();
+                
+            } catch (error) {
+                console.error('Error generating summary:', error);
+                alert('Error generating summary: ' + error.message);
             }
         }
     </script>
