@@ -500,7 +500,7 @@
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
                 // Check chunks with timeout
-                const MAX_WAIT_TIME = 30000; // 30 seconds
+                const MAX_WAIT_TIME = 60000; // 60 seconds
                 const START_TIME = Date.now();
                 let allProcessed = false;
                 
@@ -514,7 +514,7 @@
                         allProcessed = data.all_processed;
                         
                         if (!allProcessed) {
-                            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before next check
+                            await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 1 second before next check
                         }
                     } catch (error) {
                         console.error('Error checking chunks:', error);
